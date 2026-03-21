@@ -8,6 +8,12 @@ class Stock:
         self.asset_class = asset_class
         self.quantity = quantity
         self.price = price
+        self.price_history = [price]
+
+    def add_price(self, new_price: float) -> None:
+        """Add a new price to the history and update current price"""
+        self.price_history.append(new_price)
+        self.price = new_price    
     
     def total_value(self) -> float:
         """Calculate total value of this holding"""
@@ -25,8 +31,9 @@ class Portfolio:
         """Add a stock to portfolio or update if exists"""
         ticker = ticker.upper() # Normalize ticker input to uppercase
         if ticker in self.holdings:
-            # Update existing holding
+            # Update existing holding: add quantity and update price history
             self.holdings[ticker].quantity += quantity
+            self.holdings[ticker].add_price(price)  # Add new price to history
         else:
             # Add new holding
             self.holdings[ticker] = Stock(ticker, sector, asset_class, quantity, price)

@@ -1,5 +1,6 @@
 """Portfolio view: handles user interface and output"""
 
+import matplotlib.pyplot as plt
 
 class PortfolioView:
     """Handles all user-facing output and prompts"""
@@ -19,7 +20,7 @@ class PortfolioView:
     
     def get_user_input(self) -> str:
         """Get input from user"""
-        return input(self.prompt)
+        return input(self.prompt) # Display prompt and wait for user input
     
     def display_message(self, message: str) -> None:
         """Display a message to the user"""
@@ -36,3 +37,13 @@ class PortfolioView:
     def show_goodbye(self) -> None:
         """Display goodbye message"""
         print("\nGoodbye!\n")
+
+    def display_graph(self, ticker: str, price_data: list) -> None:
+        """Display a line graph of stock price history"""
+        plt.figure(figsize=(10, 5))
+        plt.plot(price_data, marker='o')
+        plt.title(f"Price History for {ticker}")
+        plt.xlabel("Time")
+        plt.ylabel("Price ($)")
+        plt.grid()
+        plt.show()
