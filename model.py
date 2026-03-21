@@ -69,4 +69,26 @@ class Portfolio:
     def total_portfolio_value(self) -> float:
         """Calculate total portfolio value"""
         return sum(stock.total_value() for stock in self.holdings.values())
+    
+    def total_transaction_value(self) -> float:
+        """Calculate total transaction value (sum of all purchases)"""
+        return sum(stock.transaction_value() for stock in self.holdings.values())
+    
+    def get_holdings_by_sector(self) -> dict:
+        """Group holdings by sector. Returns dict with sector as key and list of stocks as value"""
+        by_sector = {}
+        for stock in self.holdings.values():
+            if stock.sector not in by_sector:
+                by_sector[stock.sector] = []
+            by_sector[stock.sector].append(stock)
+        return by_sector
+    
+    def get_holdings_by_asset_class(self) -> dict:
+        """Group holdings by asset class. Returns dict with asset class as key and list of stocks as value"""
+        by_class = {}
+        for stock in self.holdings.values():
+            if stock.asset_class not in by_class:
+                by_class[stock.asset_class] = []
+            by_class[stock.asset_class].append(stock)
+        return by_class
 

@@ -43,6 +43,9 @@ class PortfolioController:
         elif command == "value":
             return self._handle_value()
         
+        elif command == "weights":
+            return self._handle_weights(args)
+        
         elif command == "help":
             return self._handle_help()
         
@@ -105,6 +108,120 @@ class PortfolioController:
         total = self.portfolio.total_portfolio_value()
         return f"- Total Portfolio Value: ${total:.2f}"
     
+    def _handle_weights(self, args: list) -> str:
+        """Handle 'weights' command - show portfolio weights and breakdowns"""
+        holdings = self.portfolio.list_holdings()
+        
+        if not holdings:
+            return "- Portfolio is empty. Use 'add' to add stocks."
+        
+        total_value = self.portfolio.total_portfolio_value()
+        
+        # No arguments: show total portfolio weights
+        if len(args) == 0:
+            result = "\n--- PORTFOLIO WEIGHTS ---\n"
+            result += f"Total Portfolio Value: ${total_value:.2f}\n"
+            result += f"Total Transaction Value: ${self.portfolio.total_transaction_value():.2f}\n\n"
+            result += f"{'Ticker':8} | {'Value':12} | {'Weight':10}\n"
+            result += "-" * 35 + "\n"
+            for stock in holdings:
+                value = stock.total_value()
+                weight = (value / total_value * 100) if total_value > 0 else 0
+                result += f"{stock.ticker:8} | ${value:11.2f} | {weight:8.2f}%\n"
+            return result
+        
+        # weights sectors - show weights of each sector
+        elif args[0].lower() == "sectors":
+            by_sector = self.portfolio.get_holdings_by_sector()
+            result = "\n--- SECTOR WEIGHTS ---\n"
+            result += f"Total Portfolio Value: ${total_value:.2f}\n\n"
+            result += f"{'Sector':15} | {'Value':12} | {'Weight':10}\n"
+            result += "-" * 42 + "\n"
+            for sector in sorted(by_sector.keys()):
+                sector_value = sum(stock.total_value() for stock in by_sector[sector])
+                weight = (sector_value / total_value * 100) if total_value > 0 else 0
+                result += f"{sector:15} | ${sector_value:11.2f} | {weight:8.2f}%\n"
+            return result
+        
+        # weights classes - show weights of each asset class
+        elif args[0].lower() == "classes":
+            by_class = self.portfolio.get_holdings_by_asset_class()
+            result = "\n--- ASSET CLASS WEIGHTS ---\n"
+            result += f"Total Portfolio Value: ${total_value:.2f}\n\n"
+            result += f"{'Asset Class':15} | {'Value':12} | {'Weight':10}\n"
+            result += "-" * 42 + "\n"
+            for asset_class in sorted(by_class.keys()):
+                class_value = sum(stock.total_value() for stock in by_class[asset_class])
+                weight = (class_value / total_value * 100) if total_value > 0 else 0
+                result += f"{asset_class:15} | ${class_value:11.2f} | {weight:8.2f}%\n"
+            return result
+        
+        # weights sector SECTOR_NAME - show weights within specific sector
+        elif args[0].lower() == "sector" and len(args) > 1:
+            sector_name = args[1].lower()
+            by_sector = self.portfolio.get_holdings_by_sector()
+            
+            # Find matching sector (case-insensitive)
+            matching_sector = None
+            for sector in by_sector.keys():
+                if sector.lower() == sector_name:
+                    matching_sector = sector
+                    break
+            
+            if not matching_sector:
+                return f"- Sector '{args[1]}' not found in portfolio."
+            
+            sector_stocks = by_sector[matching_sector]
+            sector_value = sum(stock.total_value() for stock in sector_stocks)
+            
+            result = f"\n--- WEIGHTS IN SECTOR: {matching_sector.upper()} ---\n"
+            result += f"Sector Value: ${sector_value:.2f}\n\n"
+            result += f"{'Ticker':8} | {'Value':12} | {'Weight in Sector':18}\n"
+            result += "-" * 48 + "\n"
+            for stock in sorted(sector_stocks, key=lambda x: x.total_value(), reverse=True):
+                value = stock.total_value()
+                weight = (value / sector_value * 100) if sector_value > 0 else 0
+                result += f"{stock.ticker:8} | ${value:11.2f} | {weight:16.2f}%\n"
+            return result
+        
+        # weights class CLASS_NAME - show weights within specific asset class
+        elif args[0].lower() == "class" and len(args) > 1:
+            class_name = args[1].lower()
+            by_class = self.portfolio.get_holdings_by_asset_class()
+            
+            # Find matching class (case-insensitive)
+            matching_class = None
+            for asset_class in by_class.keys():
+                if asset_class.lower() == class_name:
+                    matching_class = asset_class
+                    break
+            
+            if not matching_class:
+                return f"- Asset class '{args[1]}' not found in portfolio."
+            
+            class_stocks = by_class[matching_class]
+            class_value = sum(stock.total_value() for stock in class_stocks)
+            
+            result = f"\n--- WEIGHTS IN CLASS: {matching_class.upper()} ---\n"
+            result += f"Class Value: ${class_value:.2f}\n\n"
+            result += f"{'Ticker':8} | {'Value':12} | {'Weight in Class':18}\n"
+            result += "-" * 48 + "\n"
+            for stock in sorted(class_stocks, key=lambda x: x.total_value(), reverse=True):
+                value = stock.total_value()
+                weight = (value / class_value * 100) if class_value > 0 else 0
+                result += f"{stock.ticker:8} | ${value:11.2f} | {weight:16.2f}%\n"
+            return result
+        
+        else:
+            return """- Usage: weights [option]
+  weights                    - Show portfolio weights
+  weights sectors            - Show weights of each sector
+  weights classes            - Show weights of each asset class
+  weights sector SECTOR_NAME - Show weights within a sector
+  weights class CLASS_NAME   - Show weights within an asset class
+Example: weights sector tech
+Example: weights class stock"""
+    
     def _handle_history(self, args: list) -> str:
         """Handle 'history TICKER' command - show price history"""
         if len(args) < 1:
@@ -137,6 +254,11 @@ class PortfolioController:
                                                    Example: graph AAPL
                                                    Example: graph AAPL MSFT GOOGL
   value                                         - Show total portfolio value
+  weights                                       - Show portfolio weights (all assets)
+  weights sectors                               - Show weights of each sector
+  weights classes                               - Show weights of each asset class
+  weights sector SECTOR_NAME                    - Show weights within specific sector
+  weights class CLASS_NAME                      - Show weights within specific asset class
   remove TICKER                                 - Remove asset from portfolio
   help                                          - Show this help message
   quit / exit                                   - Exit the program
