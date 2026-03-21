@@ -47,25 +47,26 @@ class PortfolioController:
             return f"Unknown command: {command}. Type 'help' for available commands."
     
     def _handle_add(self, args: list) -> str:
-        """Handle 'add TICKER SECTOR QUANTITY PRICE' command"""
-        if len(args) < 4:
-            return "Usage: add TICKER SECTOR QUANTITY PRICE\nExample: add AAPL tech 1 100"
+        """Handle 'add TICKER SECTOR ASSET_CLASS QUANTITY PRICE' command"""
+        if len(args) < 5:
+            return "Usage: add TICKER SECTOR ASSET_CLASS QUANTITY PRICE\nExample: add AAPL tech stock 1 150.50"
         
         ticker = args[0]
         sector = args[1]
-        
+        asset_class = args[2]
+
         try:
-            quantity = int(args[2])
-            price = float(args[3])
+            quantity = int(args[3])
+            price = float(args[4])
         except ValueError:
             return "Error: QUANTITY must be integer, PRICE must be a number"
         
         if quantity <= 0 or price <= 0:
             return "Error: QUANTITY and PRICE must be positive"
         
-        self.portfolio.add_stock(ticker, sector, quantity, price)
+        self.portfolio.add_stock(ticker, sector, asset_class, quantity, price)
         total_value = quantity * price
-        return f"Added {quantity} shares of {ticker.upper()} ({sector}) at ${price} = ${total_value:.2f} total"
+        return f"Added {quantity} shares of {ticker.upper()} ({sector}) ({asset_class}) at ${price} = ${total_value:.2f} total"
     
     def _handle_list(self) -> str:
         """Handle 'list' command, shows all holdings"""
@@ -76,7 +77,7 @@ class PortfolioController:
         
         result = "\n--- PORTFOLIO HOLDINGS ---\n"
         for stock in holdings:
-            result += f"{stock.ticker:6} | {stock.sector:10} | Qty: {stock.quantity:5} | Price: ${stock.price:8.2f} | Total: ${stock.total_value():10.2f}\n"
+            result += f"{stock.ticker:6} | {stock.sector:10} | {stock.asset_class:8} | Qty: {stock.quantity:5} | Price: ${stock.price:8.2f} | Total: ${stock.total_value():10.2f}\n"
         
         return result
     
@@ -100,12 +101,12 @@ class PortfolioController:
         """Show available commands"""
         help_text = """
 --- PORTFOLIO TRACKER COMMANDS ---
-  add TICKER SECTOR QUANTITY PRICE  - Add stock to portfolio
-                                      Example: add AAPL tech 1 100
-  list                              - Show all holdings
-  value                             - Show total portfolio value
-  remove TICKER                     - Remove stock from portfolio
-  help                              - Show this help message
-  quit / exit                       - Exit the program
+  add TICKER SECTOR ASSET_CLASS QUANTITY PRICE  - Add asset to portfolio
+                                                   Example: add AAPL tech stock 1 150.50
+  list                                          - Show all holdings
+  value                                         - Show total portfolio value
+  remove TICKER                                 - Remove asset from portfolio
+  help                                          - Show this help message
+  quit / exit                                   - Exit the program
 """
         return help_text
