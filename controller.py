@@ -82,8 +82,10 @@ class PortfolioController:
             return "- Portfolio is empty. Use 'add' to add stocks."
         
         result = "\n--- PORTFOLIO HOLDINGS ---\n"
+        result += f"{'Ticker':6} | {'Sector':10} | {'Asset Class':12} | {'Qty':5} | {'Avg Price':11} | {'Transaction Value':17} | {'Current Value':14}\n"
+        result += "-" * 110 + "\n"
         for stock in holdings:
-            result += f"{stock.ticker:6} | {stock.sector:10} | {stock.asset_class:8} | Qty: {stock.quantity:5} | Price: ${stock.price:8.2f} | Total: ${stock.total_value():10.2f}\n"
+            result += f"{stock.ticker:6} | {stock.sector:10} | {stock.asset_class:12} | {stock.quantity:5} | ${stock.get_average_purchase_price():10.2f} | ${stock.transaction_value():16.2f} | ${stock.total_value():13.2f}\n"
         
         return result
     

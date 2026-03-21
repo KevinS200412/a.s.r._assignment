@@ -8,16 +8,28 @@ class Stock:
         self.asset_class = asset_class
         self.quantity = quantity
         self.price = price
+        self.total_cost_invested = quantity * price  # Track total cost of all purchases
         self.price_history = [price]
 
-    def add_price(self, new_price: float) -> None:
-        """Add a new price to the history and update current price"""
+    def add_price(self, new_price: float, additional_quantity: int = 0) -> None:
+        """Add a new price to the history and update current price. Used when quantity changes."""
         self.price_history.append(new_price)
-        self.price = new_price    
+        self.price = new_price
+        # If additional quantity was purchased, add to total cost
+        if additional_quantity > 0:
+            self.total_cost_invested += additional_quantity * new_price
+    
+    def get_average_purchase_price(self) -> float:
+        """Calculate weighted average purchase price across all purchases"""
+        return self.total_cost_invested / self.quantity if self.quantity > 0 else 0
     
     def total_value(self) -> float:
-        """Calculate total value of this holding"""
+        """Calculate total current value of this holding (based on current price)"""
         return self.quantity * self.price
+    
+    def transaction_value(self) -> float:
+        """Calculate transaction value (total amount invested at purchase prices)"""
+        return self.total_cost_invested
     
     def __repr__(self) -> str: # Ensures good-looking print of stock info
         return f"Stock({self.ticker}, {self.sector}, {self.asset_class}, Qty:{self.quantity}, Price:${self.price})"
@@ -31,9 +43,9 @@ class Portfolio:
         """Add a stock to portfolio or update if exists"""
         ticker = ticker.upper() # Normalize ticker input to uppercase
         if ticker in self.holdings:
-            # Update existing holding: add quantity and update price history
+            # Update existing holding: add quantity and update price history with new purchase
             self.holdings[ticker].quantity += quantity
-            self.holdings[ticker].add_price(price)  # Add new price to history
+            self.holdings[ticker].add_price(price, additional_quantity=quantity)  # Add new price and quantity to cost basis
         else:
             # Add new holding
             self.holdings[ticker] = Stock(ticker, sector, asset_class, quantity, price)
