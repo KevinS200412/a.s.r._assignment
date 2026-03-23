@@ -67,7 +67,17 @@ class PortfolioController:
 
         elif command == "volume":
             return self._handle_volume(args)
-        
+
+        elif command == "predict":
+            if args and args[0].lower() == "volatility":
+                return self._handle_volatility(args[1:])
+            return "- Usage: predict volatility TICKER [PERIOD]"
+
+        elif command == "historical":
+            if args and args[0].lower() == "volatility":
+                return self._handle_historical_volatility(args[1:])
+            return "- Usage: historical volatility TICKER [PERIOD]"
+
         elif command == "graph":
             return self._handle_graph(args)
         
@@ -355,7 +365,97 @@ Example: weights class stock"""
 
         except Exception as e:
             return f"- Error fetching volume for {ticker}: {str(e)}"
-    
+
+    def _garch_fit(self, ticker: str, period: str):
+        """Shared helper: fetch data, fit GARCH(1,1), return (result, returns, predicted_vol_daily, last_date) or raises."""
+        import numpy as np
+        from arch import arch_model
+
+        hist = yf.Ticker(ticker).history(period=period)
+        if hist.empty or len(hist) < 30:
+            raise ValueError(f"Not enough data for '{ticker}' to fit GARCH (need at least 30 observations).")
+
+        closes = hist['Close'].dropna()
+        returns = 100 * np.log(closes / closes.shift(1)).dropna()
+        last_date = closes.index[-1].strftime('%Y-%m-%d')
+
+        model = arch_model(returns, vol='Garch', p=1, q=1, dist='normal', rescale=False)
+        result = model.fit(disp='off')
+
+        forecast = result.forecast(horizon=1, reindex=False)
+        predicted_vol_daily = float(np.sqrt(forecast.variance.iloc[-1, 0]))
+        predicted_vol_annual = predicted_vol_daily * np.sqrt(252)
+
+        return result, returns, predicted_vol_daily, predicted_vol_annual, last_date
+
+    def _handle_volatility(self, args: list) -> str:
+        """Handle 'predict volatility TICKER [PERIOD]' - terminal-only GARCH(1,1) forecast."""
+        if len(args) < 1:
+            return "- Usage: predict volatility TICKER [PERIOD]\nExample: predict volatility AAPL\nExample: predict volatility AAPL 5y"
+
+        ticker = args[0].upper()
+        period = args[1] if len(args) > 1 else "2y"
+
+        valid_periods = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+        if period not in valid_periods:
+            return f"- Error: Invalid period '{period}'. Valid options: {', '.join(sorted(valid_periods))}"
+
+        try:
+            from arch import arch_model
+        except ImportError:
+            return "- Error: 'arch' package required. Run: pip install arch"
+
+        try:
+            import numpy as np
+            result, returns, predicted_vol_daily, predicted_vol_annual, last_date = self._garch_fit(ticker, period)
+
+            out  = f"\n--- GARCH(1,1) VOLATILITY FORECAST FOR {ticker} ---\n"
+            out += f"Fitted on {period} of data ({len(returns)} obs, up to {last_date})\n"
+            out += f"Predicted daily vol (today): {predicted_vol_daily:.4f}%\n"
+            return out
+
+        except Exception as e:
+            return f"- Error running GARCH model for {ticker}: {str(e)}"
+
+    def _handle_historical_volatility(self, args: list) -> str:
+        """Handle 'historical volatility TICKER [PERIOD]' - GARCH(1,1) conditional vol graph."""
+        if len(args) < 1:
+            return "- Usage: historical volatility TICKER [PERIOD]\nExample: historical volatility AAPL\nExample: historical volatility AAPL 5y"
+
+        ticker = args[0].upper()
+        period = args[1] if len(args) > 1 else "2y"
+
+        valid_periods = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+        if period not in valid_periods:
+            return f"- Error: Invalid period '{period}'. Valid options: {', '.join(sorted(valid_periods))}"
+
+        try:
+            from arch import arch_model
+        except ImportError:
+            return "- Error: 'arch' package required. Run: pip install arch"
+
+        try:
+            import matplotlib.pyplot as plt
+            result, returns, predicted_vol_daily, predicted_vol_annual, last_date = self._garch_fit(ticker, period)
+
+            cond_vol = result.conditional_volatility
+            plt.figure(figsize=(12, 5))
+            plt.plot(returns.index, cond_vol, color='steelblue', linewidth=1, label='Conditional volatility (daily %)')
+            plt.axhline(predicted_vol_daily, color='red', linestyle='--', linewidth=1.5,
+                        label=f'Today forecast: {predicted_vol_daily:.3f}%')
+            plt.title(f'GARCH(1,1) Conditional Volatility — {ticker} ({period})')
+            plt.xlabel('Date')
+            plt.ylabel('Daily Volatility (%)')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.show()
+
+            return f"- GARCH(1,1) historical volatility graph displayed for {ticker}."
+
+        except Exception as e:
+            return f"- Error running GARCH model for {ticker}: {str(e)}"
+
     def _handle_simulate(self) -> str:
         """Handle 'simulate' command, Monte Carlo simulation over 15 years with 100,000 paths"""
         holdings = self.portfolio.list_holdings()
@@ -482,12 +582,8 @@ Example: weights class stock"""
   list                                         - Show all holdings (prices refreshed from Yahoo Finance)
   history TICKER [PERIOD]                      - Show historical close prices from Yahoo Finance
                                                   PERIOD: 1d 5d 1mo 3mo 6mo 1y 2y 5y 10y ytd max (default: 1mo)
-                                                  Example: history AAPL
-                                                  Example: history AAPL 6mo
   volume TICKER [PERIOD]                       - Show avg and last trading volume from Yahoo Finance
-                                                  Example: volume AAPL
-                                                  Example: volume AAPL 6mo
-  graph TICKER [TICKER2 TICKER3 ...]          - Display 1-year price chart from Yahoo Finance
+  graph TICKER [TICKER2 TICKER3 ...]           - Display 1-year price chart from Yahoo Finance
                                                   Example: graph AAPL
                                                   Example: graph AAPL MSFT GOOGL
   value                                        - Show total portfolio value (live prices)
@@ -496,6 +592,10 @@ Example: weights class stock"""
   weights classes                              - Show weights of each asset class
   weights sector SECTOR_NAME                   - Show weights within specific sector
   weights class CLASS_NAME                     - Show weights within specific asset class
+  predict volatility TICKER                    - GARCH(1,1) forecast of today's volatility (terminal output)
+  historical volatility TICKER [PERIOD]        - GARCH(1,1) conditional volatility graph over time
+                                                  PERIOD: 1mo 3mo 6mo 1y 2y 5y 10y ytd max (default: 2y)
+                                                  Example: historical volatility AAPL
   simulate                                     - Run Monte Carlo simulation (15yr, 100k paths)
   remove TICKER                                - Remove asset from portfolio
   help                                         - Show this help message
