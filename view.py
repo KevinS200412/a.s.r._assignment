@@ -51,7 +51,7 @@ class PortfolioView:
                                                               Example: add AAPL tech stock 10 154.00
   list                                         - Show all holdings (prices refreshed from Yahoo Finance)
   history TICKER [PERIOD]                      - Show historical close prices from Yahoo Finance
-                                                  PERIOD: 1d 5d 1mo 3mo 6mo 1y 2y 5y 10y ytd max (default: 1mo)
+                                                  PERIOD: 1d 5d 1mo 3mo 6mo 1y 2y 5y 10y max (default: 1mo)
   volume TICKER [PERIOD]                       - Show avg and last trading volume from Yahoo Finance
   graph TICKER [TICKER2 TICKER3 ...]           - Display 1-year price chart from Yahoo Finance
                                                   Example: graph AAPL
@@ -64,7 +64,7 @@ class PortfolioView:
   weights class CLASS_NAME                     - Show weights within specific asset class
   predict volatility TICKER                    - GARCH(1,1) forecast of today's volatility (terminal output)
   historical volatility TICKER [PERIOD]        - GARCH(1,1) conditional volatility graph over time
-                                                  PERIOD: 1mo 3mo 6mo 1y 2y 5y 10y ytd max (default: 2y)
+                                                  PERIOD: 1mo 3mo 6mo 1y 2y 5y 10y max (default: 2y)
                                                   Example: historical volatility AAPL
   regime TICKER [PERIOD] [--states N]          - HMM regime detection (low/medium/high vol states)
                                                   PERIOD default: 2y | --states default: 3 (2-6)
