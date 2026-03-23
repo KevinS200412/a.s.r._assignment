@@ -44,8 +44,9 @@ class PortfolioView:
         print("""
 --- PORTFOLIO TRACKER COMMANDS ---
   add TICKER SECTOR ASSET_CLASS QUANTITY [PURCHASE_PRICE]  - Add asset to portfolio
-                                                              PURCHASE_PRICE is optional; if omitted, the live price is used as purchase price
-                                                              Current value always reflects the live Yahoo Finance price
+                                                              PURCHASE_PRICE is optional; if omitted, 
+                                                                the live price is used as purchase price
+                                                              Current value reflects the live price from Yahoo Finance
                                                               Example: add AAPL tech stock 10
                                                               Example: add AAPL tech stock 10 154.00
   list                                         - Show all holdings (prices refreshed from Yahoo Finance)
@@ -267,7 +268,7 @@ class PortfolioView:
         plt.fill_between(years, pct_values[0] / 1e3, pct_values[6] / 1e3, alpha=0.08, color='red', label='1st–99th pct')
         plt.fill_between(years, pct_values[1] / 1e3, pct_values[5] / 1e3, alpha=0.15, color='orange', label='5th–95th pct')
         plt.fill_between(years, pct_values[2] / 1e3, pct_values[4] / 1e3, alpha=0.25, color='orange', label='25th–75th pct')
-        
+
         plt.plot(years, pct_values[3] / 1e3, color='darkorange', linewidth=2.5, label='Median')
         plt.axhline(y=total_initial_value / 1e3, color='red', linestyle='--', linewidth=1.5, label='Initial Value')
         plt.title(f"Portfolio Monte Carlo Simulation — {n_years} Years, {n_paths:,} Paths", fontsize=14)
