@@ -29,9 +29,10 @@ def main():
             if result.upper() == "QUIT":
                 view.show_goodbye()
                 break
-            
-            # Display result
-            view.display_message(result)
+
+            # Display result (errors and simple confirmations)
+            if result:
+                view.display_message(result)
         
         except KeyboardInterrupt:
             print("\n")
