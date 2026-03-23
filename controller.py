@@ -1,5 +1,6 @@
 """Portfolio controller: handles CLI commands and user inputs"""
 
+import yfinance as yf
 from model import Portfolio
 
 
@@ -8,7 +9,37 @@ class PortfolioController:
     
     def __init__(self):
         self.portfolio = Portfolio()
-    
+
+    def _validate_and_fetch_price(self, ticker: str) -> tuple:
+        """
+        Validates that a ticker exists on Yahoo Finance and returns its current price.
+        Returns (price, None) on success, or (None, error_message) on failure.
+        """
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="5d")
+            if hist.empty or hist['Close'].dropna().empty:
+                return None, f"- Error: '{ticker}' was not found on Yahoo Finance. Cannot add this asset."
+            price = float(hist['Close'].dropna().iloc[-1])
+            return round(price, 4), None
+        except Exception:
+            return None, f"- Error: Could not fetch data for '{ticker}' from Yahoo Finance. Cannot add this asset."
+
+    def _refresh_portfolio_prices(self) -> None:
+        """Update all stock prices in the portfolio with live data from Yahoo Finance."""
+        holdings = self.portfolio.list_holdings()
+        if not holdings:
+            return
+        for stock in holdings:
+            try:
+                hist = yf.Ticker(stock.ticker).history(period="5d")
+                if not hist.empty:
+                    closes = hist['Close'].dropna()
+                    if len(closes) > 0:
+                        stock.price = round(float(closes.iloc[-1]), 4)
+            except Exception:
+                pass  # Keep existing price if refresh fails
+
     def parse_command(self, user_input: str) -> tuple:
         """
         Splits user input into command and arguments.
@@ -33,6 +64,9 @@ class PortfolioController:
         
         elif command == "history":
             return self._handle_history(args)
+
+        elif command == "volume":
+            return self._handle_volume(args)
         
         elif command == "graph":
             return self._handle_graph(args)
@@ -59,40 +93,68 @@ class PortfolioController:
             return f"- Unknown command: {command}. Type 'help' for available commands."
     
     def _handle_add(self, args: list) -> str:
-        """Handle 'add TICKER SECTOR ASSET_CLASS QUANTITY PRICE' command"""
-        if len(args) < 5:
-            return "- Usage: add TICKER SECTOR ASSET_CLASS QUANTITY PRICE\nExample: add AAPL tech stock 1 150.50"
-        
-        ticker = args[0]
+        """Handle 'add TICKER SECTOR ASSET_CLASS QUANTITY [PURCHASE_PRICE]' command.
+        PURCHASE_PRICE is optional. If omitted, the live Yahoo Finance price is used as the purchase price.
+        Current value always reflects the live price from Yahoo Finance.
+        """
+        if len(args) < 4:
+            return "- Usage: add TICKER SECTOR ASSET_CLASS QUANTITY [PURCHASE_PRICE]\nExample: add AAPL tech stock 10\nExample: add AAPL tech stock 10 154.00"
+
+        ticker = args[0].upper()
         sector = args[1]
         asset_class = args[2]
 
         try:
             quantity = int(args[3])
-            price = float(args[4])
         except ValueError:
-            return "- Error: QUANTITY must be integer, PRICE must be a number"
-        
-        if quantity <= 0 or price <= 0:
-            return "- Error: QUANTITY and PRICE must be positive"
-        
-        self.portfolio.add_stock(ticker, sector, asset_class, quantity, price)
-        total_value = quantity * price
-        return f"- Added {quantity} shares of {ticker.upper()} ({sector}) ({asset_class}) at ${price} = ${total_value:.2f} total"
+            return "- Error: QUANTITY must be an integer"
+
+        if quantity <= 0:
+            return "- Error: QUANTITY must be positive"
+
+        # Parse optional purchase price
+        purchase_price = None
+        if len(args) >= 5:
+            try:
+                purchase_price = float(args[4])
+            except ValueError:
+                return "- Error: PURCHASE_PRICE must be a number"
+            if purchase_price <= 0:
+                return "- Error: PURCHASE_PRICE must be positive"
+
+        # Validate ticker exists on Yahoo Finance and fetch live price
+        live_price, error = self._validate_and_fetch_price(ticker)
+        if error:
+            return error
+
+        # Use user-specified price for cost basis, live price if not specified
+        cost_price = purchase_price if purchase_price is not None else live_price
+
+        self.portfolio.add_stock(ticker, sector, asset_class, quantity, cost_price)
+
+        # Always update current price to the live market price
+        stock = self.portfolio.get_stock(ticker)
+        stock.price = live_price
+
+        total_cost = quantity * cost_price
+        return f"- Added {quantity} shares of {ticker} ({sector}) ({asset_class}) at ${cost_price:.2f} = ${total_cost:.2f} total"
     
     def _handle_list(self) -> str:
         """Handle 'list' command, shows all holdings"""
         holdings = self.portfolio.list_holdings()
-        
+
         if not holdings:
             return "- Portfolio is empty. Use 'add' to add stocks."
-        
-        result = "\n--- PORTFOLIO HOLDINGS ---\n"
+
+        # Refresh prices from Yahoo Finance before displaying
+        self._refresh_portfolio_prices()
+
+        result = "\n--- PORTFOLIO HOLDINGS (live prices from Yahoo Finance) ---\n"
         result += f"{'Ticker':6} | {'Sector':10} | {'Asset Class':12} | {'Qty':5} | {'Avg Price':11} | {'Transaction Value':17} | {'Current Value':14}\n"
         result += "-" * 110 + "\n"
         for stock in holdings:
             result += f"{stock.ticker:6} | {stock.sector:10} | {stock.asset_class:12} | {stock.quantity:5} | ${stock.get_average_purchase_price():10.2f} | ${stock.transaction_value():16.2f} | ${stock.total_value():13.2f}\n"
-        
+
         return result
     
     def _handle_remove(self, args: list) -> str:
@@ -108,16 +170,19 @@ class PortfolioController:
     
     def _handle_value(self) -> str:
         """Handle 'value' command, show total portfolio value"""
+        self._refresh_portfolio_prices()
         total = self.portfolio.total_portfolio_value()
-        return f"- Total Portfolio Value: ${total:.2f}"
+        return f"- Total Portfolio Value (live prices): ${total:.2f}"
     
     def _handle_weights(self, args: list) -> str:
         """Handle 'weights' command, show portfolio weights and breakdowns"""
         holdings = self.portfolio.list_holdings()
-        
+
         if not holdings:
             return "- Portfolio is empty. Use 'add' to add stocks."
-        
+
+        # Refresh prices from Yahoo Finance before computing weights
+        self._refresh_portfolio_prices()
         total_value = self.portfolio.total_portfolio_value()
         
         # No arguments: show total portfolio weights
@@ -226,23 +291,70 @@ Example: weights sector tech
 Example: weights class stock"""
     
     def _handle_history(self, args: list) -> str:
-        """Handle 'history TICKER' command,  show price history"""
+        """Handle 'history TICKER [PERIOD]' command - fetches close price history from Yahoo Finance.
+        PERIOD examples: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y (default: 1mo)
+        """
         if len(args) < 1:
-            return "- Usage: history TICKER\nExample: history AAPL"
-        
+            return "- Usage: history TICKER [PERIOD]\nExample: history AAPL\nExample: history AAPL 6mo"
+
         ticker = args[0].upper()
+        period = args[1] if len(args) > 1 else "1mo"
+
+        valid_periods = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+        if period not in valid_periods:
+            return f"- Error: Invalid period '{period}'. Valid options: {', '.join(sorted(valid_periods))}"
+
         stock = self.portfolio.get_stock(ticker)
-        
-        if not stock:
-            return f"- Error: {ticker} not found in portfolio"
-        
-        # Format the history as a list
-        history_text = f"\n--- PRICE HISTORY FOR {ticker} ---\n"
-        for idx, price in enumerate(stock.price_history, 1):
-            history_text += f"Entry {idx}: ${price:.2f}\n"
-        
-        history_text += f"\nCurrent Price: ${stock.price:.2f}\n"
-        return history_text
+
+        try:
+            hist = yf.Ticker(ticker).history(period=period)
+            if hist.empty:
+                return f"- No historical data available for '{ticker}'. Make sure it is a valid Yahoo Finance ticker."
+
+            result = f"\n--- PRICE HISTORY FOR {ticker} (Period: {period}, source: Yahoo Finance) ---\n"
+            result += f"{'Date':12} | {'Close':10}\n"
+            result += "-" * 26 + "\n"
+            for date, row in hist.iterrows():
+                date_str = date.strftime('%Y-%m-%d')
+                result += f"{date_str:12} | ${row['Close']:9.2f}\n"
+
+            if stock:
+                result += f"\nCurrent Price: ${stock.price:.2f} | Avg Purchase Price: ${stock.get_average_purchase_price():.2f}\n"
+            return result
+
+        except Exception as e:
+            return f"- Error fetching history for {ticker}: {str(e)}"
+
+    def _handle_volume(self, args: list) -> str:
+        """Handle 'volume TICKER [PERIOD]' command - shows avg and last volume from Yahoo Finance.
+        PERIOD examples: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y (default: 1mo)
+        """
+        if len(args) < 1:
+            return "- Usage: volume TICKER [PERIOD]\nExample: volume AAPL\nExample: volume AAPL 6mo"
+
+        ticker = args[0].upper()
+        period = args[1] if len(args) > 1 else "1mo"
+
+        valid_periods = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+        if period not in valid_periods:
+            return f"- Error: Invalid period '{period}'. Valid options: {', '.join(sorted(valid_periods))}"
+
+        try:
+            hist = yf.Ticker(ticker).history(period=period)
+            if hist.empty:
+                return f"- No data available for '{ticker}'. Make sure it is a valid Yahoo Finance ticker."
+
+            avg_vol = int(hist['Volume'].mean())
+            last_vol = int(hist['Volume'].iloc[-1])
+            last_date = hist.index[-1].strftime('%Y-%m-%d')
+
+            result = f"\n--- VOLUME INFO FOR {ticker} (Period: {period}, source: Yahoo Finance) ---\n"
+            result += f"Avg Volume (Period: {period}): {avg_vol:,}\n"
+            result += f"Last Volume ({last_date}): {last_vol:,}\n"
+            return result
+
+        except Exception as e:
+            return f"- Error fetching volume for {ticker}: {str(e)}"
     
     def _handle_simulate(self) -> str:
         """Handle 'simulate' command, Monte Carlo simulation over 15 years with 100,000 paths"""
@@ -362,70 +474,72 @@ Example: weights class stock"""
         """Show available commands"""
         help_text = """
 --- PORTFOLIO TRACKER COMMANDS ---
-  add TICKER SECTOR ASSET_CLASS QUANTITY PRICE  - Add asset to portfolio
-                                                   Example: add AAPL tech stock 1 150.50
-  list                                          - Show all holdings
-  history TICKER                                - Show price history for a ticker
-                                                   Example: history AAPL
-  graph TICKER [TICKER2 TICKER3 ...]           - Display price graph for one or more tickers
-                                                   Example: graph AAPL
-                                                   Example: graph AAPL MSFT GOOGL
-  value                                         - Show total portfolio value
-  weights                                       - Show portfolio weights (all assets)
-  weights sectors                               - Show weights of each sector
-  weights classes                               - Show weights of each asset class
-  weights sector SECTOR_NAME                    - Show weights within specific sector
-  weights class CLASS_NAME                      - Show weights within specific asset class
-  simulate                                      - Run Monte Carlo simulation (15yr, 100k paths)
-  remove TICKER                                 - Remove asset from portfolio
-  help                                          - Show this help message
-  quit / exit                                   - Exit the program
+  add TICKER SECTOR ASSET_CLASS QUANTITY [PURCHASE_PRICE]  - Add asset to portfolio
+                                                              PURCHASE_PRICE is optional; if omitted, the live price is used as purchase price
+                                                              Current value always reflects the live Yahoo Finance price
+                                                              Example: add AAPL tech stock 10
+                                                              Example: add AAPL tech stock 10 154.00
+  list                                         - Show all holdings (prices refreshed from Yahoo Finance)
+  history TICKER [PERIOD]                      - Show historical close prices from Yahoo Finance
+                                                  PERIOD: 1d 5d 1mo 3mo 6mo 1y 2y 5y 10y ytd max (default: 1mo)
+                                                  Example: history AAPL
+                                                  Example: history AAPL 6mo
+  volume TICKER [PERIOD]                       - Show avg and last trading volume from Yahoo Finance
+                                                  Example: volume AAPL
+                                                  Example: volume AAPL 6mo
+  graph TICKER [TICKER2 TICKER3 ...]          - Display 1-year price chart from Yahoo Finance
+                                                  Example: graph AAPL
+                                                  Example: graph AAPL MSFT GOOGL
+  value                                        - Show total portfolio value (live prices)
+  weights                                      - Show portfolio weights (all assets, live prices)
+  weights sectors                              - Show weights of each sector
+  weights classes                              - Show weights of each asset class
+  weights sector SECTOR_NAME                   - Show weights within specific sector
+  weights class CLASS_NAME                     - Show weights within specific asset class
+  simulate                                     - Run Monte Carlo simulation (15yr, 100k paths)
+  remove TICKER                                - Remove asset from portfolio
+  help                                         - Show this help message
+  quit / exit                                  - Exit the program
 """
         return help_text
 
     def _handle_graph(self, args: list) -> str:
-        """Handle 'graph TICKER1 TICKER2 ...' command, display price charts for multiple tickers"""
+        """Handle 'graph TICKER1 TICKER2 ...' command - displays 1-year price charts from Yahoo Finance"""
         if len(args) < 1:
             return "- Usage: graph TICKER [TICKER2 TICKER3 ...]\nExample: graph AAPL\nExample: graph AAPL MSFT GOOGL"
-        
+
         try:
             import matplotlib.pyplot as plt
-            
-            # Collect all valid stocks
-            stocks_to_plot = []
-            for ticker_arg in args:
-                ticker = ticker_arg.upper()
-                stock = self.portfolio.get_stock(ticker)
-                
-                if not stock:
-                    return f"- Error: {ticker} not found in portfolio"
-                
-                if len(stock.price_history) < 2:
-                    return f"- Error: Not enough price history for {ticker} (need at least 2 entries)"
-                
-                stocks_to_plot.append(stock)
-            
-            # Create figure with all stocks
+
+            tickers = [t.upper() for t in args]
+            not_found = []
+
             plt.figure(figsize=(12, 7))
-            
-            for stock in stocks_to_plot:
-                plt.plot(range(1, len(stock.price_history) + 1), 
-                        stock.price_history, 
-                        marker='o', 
-                        linestyle='-', 
-                        linewidth=2,
-                        label=stock.ticker)  # Add label for legend
-            
-            plt.title("Price History Comparison")
-            plt.xlabel("Entry #")
+
+            for ticker in tickers:
+                hist = yf.Ticker(ticker).history(period="1y") # Show historical price for 1 year
+                if hist.empty or hist['Close'].dropna().empty:
+                    not_found.append(ticker)
+                    continue
+                plt.plot(hist.index, hist['Close'], linewidth=2, label=ticker)
+
+            if not_found:
+                plt.close()
+                return f"- Error: No data found on Yahoo Finance for: {', '.join(not_found)}"
+
+            plotted = [t for t in tickers if t not in not_found]
+
+            plt.title("Price History — 1 Year (Yahoo Finance)")
+            plt.xlabel("Date")
             plt.ylabel("Price ($)")
-            plt.legend(loc='best')  # Show legend with ticker names
+            plt.legend(loc='best')
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
             plt.show()
-            
-            ticker_list = ", ".join([s.ticker for s in stocks_to_plot])
-            return f"- Graph displayed for: {ticker_list}"
-        
+
+            return f"- Graph displayed for: {', '.join(plotted)}"
+
         except ImportError:
-            return "- Error: matplotlib not installed. Run: pip install -r requirements.txt"
+            return "- Error: matplotlib required. Run: pip install -r requirements.txt"
+        except Exception as e:
+            return f"- Error generating graph: {str(e)}"
