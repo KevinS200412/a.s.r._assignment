@@ -48,3 +48,30 @@ python main.py
 1. When 'portfolio>' is displayed, you can enter commands in the terminal
 2. Type 'help' to see all available commands
 3. The application will display all commands together with a description of each command
+
+Examples of commands:
+
+Example: list
+         -> displays all current holdings in the portfolio
+
+Example: value
+         -> shows the total value of the portfolio
+
+Example: add AAPL tech stock 2 200
+         -> adds 2 shares of AAPL at $200 per share (total cost: $400)
+
+Example: history AAPL 6mo
+         -> displays AAPL price history over the last 6 months
+
+Example: weights sector tech
+         -> shows the distribution of stocks within the tech sector
+
+
+Remarks:
+
+- If you add an asset at a specific price, this is used as the purchase price, while the current value is always based on live market data.
+
+- The application uses live data from Yahoo Finance, so an internet connection is required for most features.
+
+- The Monte Carlo simulation is based on assumed return and volatility parameters and does not guarantee future performance.
+
