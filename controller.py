@@ -7,8 +7,9 @@ from model import Portfolio
 class PortfolioController:
     """Handles user commands and portfolio operations"""
     
-    def __init__(self):
+    def __init__(self, view=None):
         self.portfolio = Portfolio()
+        self.view = view
 
     def _validate_and_fetch_price(self, ticker: str) -> tuple:
         """
@@ -26,19 +27,35 @@ class PortfolioController:
             return None, f"- Error: Could not fetch data for '{ticker}' from Yahoo Finance. Cannot add this asset."
 
     def _refresh_portfolio_prices(self) -> None:
-        """Update all stock prices in the portfolio with live data from Yahoo Finance."""
+        """Batch-fetch live prices for all holdings in a single API call."""
         holdings = self.portfolio.list_holdings()
         if not holdings:
             return
-        for stock in holdings:
-            try:
-                hist = yf.Ticker(stock.ticker).history(period="5d")
-                if not hist.empty:
-                    closes = hist['Close'].dropna()
-                    if len(closes) > 0:
-                        stock.price = round(float(closes.iloc[-1]), 4)
-            except Exception:
-                pass  # Keep existing price if refresh fails
+        tickers = [s.ticker for s in holdings]
+        try:
+            data = yf.download(tickers, period="5d", progress=False, auto_adjust=True)
+            close = data["Close"]
+            # Single-ticker download returns a Series; wrap into DataFrame
+            if close.ndim == 1:
+                close = close.to_frame(name=tickers[0])
+            for stock in holdings:
+                try:
+                    col = close[stock.ticker].dropna()
+                    if not col.empty:
+                        stock.price = round(float(col.iloc[-1]), 4)
+                except Exception:
+                    pass  # Keep existing price if ticker not in data
+        except Exception:
+            # Fallback: individual requests
+            for stock in holdings:
+                try:
+                    hist = yf.Ticker(stock.ticker).history(period="5d")
+                    if not hist.empty:
+                        closes = hist["Close"].dropna()
+                        if not closes.empty:
+                            stock.price = round(float(closes.iloc[-1]), 4)
+                except Exception:
+                    pass  # Keep existing price if refresh fails
 
     def parse_command(self, user_input: str) -> tuple:
         """
@@ -93,6 +110,9 @@ class PortfolioController:
         elif command == "weights":
             return self._handle_weights(args)
         
+        elif command == "return":
+            return self._handle_return()
+
         elif command == "simulate":
             return self._handle_simulate()
         
@@ -438,22 +458,10 @@ Example: weights class stock"""
             return "- Error: 'arch' package required. Run: pip install arch"
 
         try:
-            import matplotlib.pyplot as plt
             result, returns, predicted_vol_daily, predicted_vol_annual, last_date = self._garch_fit(ticker, period)
 
             cond_vol = result.conditional_volatility
-            plt.figure(figsize=(12, 5))
-            plt.plot(returns.index, cond_vol, color='steelblue', linewidth=1, label='Conditional volatility (daily %)')
-            plt.axhline(predicted_vol_daily, color='red', linestyle='--', linewidth=1.5,
-                        label=f'Today forecast: {predicted_vol_daily:.3f}%')
-            plt.title(f'GARCH(1,1) Conditional Volatility — {ticker} ({period})')
-            plt.xlabel('Date')
-            plt.ylabel('Daily Volatility (%)')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.show()
-
+            self.view.display_volatility_graph(ticker, period, returns.index, cond_vol, predicted_vol_daily)
             return f"- GARCH(1,1) historical volatility graph displayed for {ticker}."
 
         except Exception as e:
@@ -565,9 +573,8 @@ Example: weights class stock"""
 
         try:
             import numpy as np
-            import matplotlib.pyplot as plt
         except ImportError:
-            return "- Error: numpy and matplotlib required. Run: pip install -r requirements.txt"
+            return "- Error: numpy required. Run: pip install -r requirements.txt"
 
         # Expected annual return and volatility per asset class (mu, sigma), based on historical averages
         CLASS_PARAMS = {
@@ -646,27 +653,9 @@ Example: weights class stock"""
         result += f"  Best case   (95th pct):  ${np.percentile(final_values, 95):>15,.2f}\n"
         result += f"  Extreme best (99th pct): ${np.percentile(final_values, 99):>15,.2f}\n"
 
-        # Plot simulation
+        # Display simulation graph via view
         years = np.arange(N_YEARS + 1)
-        plt.figure(figsize=(14, 7))
-        # Plot a sample of paths in light grey
-        sample_idx = np.random.choice(N_PATHS, size=200, replace=False)
-        for i in sample_idx:
-            plt.plot(years, portfolio_paths_final[i] / 1e3, color='steelblue', alpha=0.03, linewidth=0.5)
-        # Plot percentile bands (1st-99th, 5th-95th, 25th-75th)
-        plt.fill_between(years, pct_values[0] / 1e3, pct_values[6] / 1e3, alpha=0.08, color='red', label='1st–99th pct')
-        plt.fill_between(years, pct_values[1] / 1e3, pct_values[5] / 1e3, alpha=0.15, color='orange', label='5th–95th pct')
-        plt.fill_between(years, pct_values[2] / 1e3, pct_values[4] / 1e3, alpha=0.25, color='orange', label='25th–75th pct')
-        plt.plot(years, pct_values[3] / 1e3, color='darkorange', linewidth=2.5, label='Median')
-        plt.axhline(y=total_initial_value / 1e3, color='red', linestyle='--', linewidth=1.5, label='Initial Value')
-        plt.title(f"Portfolio Monte Carlo Simulation — 15 Years, {N_PATHS:,} Paths", fontsize=14)
-        plt.xlabel("Year")
-        plt.ylabel("Portfolio Value ($000s)")
-        plt.legend(loc='upper left')
-        plt.grid(True, alpha=0.3)
-        plt.xticks(range(0, N_YEARS + 1))
-        plt.tight_layout()
-        plt.show()
+        self.view.display_simulation_graph(years, portfolio_paths_final, pct_values, total_initial_value, N_PATHS, N_YEARS)
 
         return result
 
@@ -700,6 +689,7 @@ Example: weights class stock"""
                                                   PERIOD default: 2y | --states default: 3 (2-6)
                                                   Example: regime AAPL
                                                   Example: regime AAPL 5y --states 4
+  return                                       - Show total portfolio return (cost basis vs live value)
   simulate                                     - Run Monte Carlo simulation (15yr, 100k paths)
   remove TICKER                                - Remove asset from portfolio
   help                                         - Show this help message
@@ -707,43 +697,50 @@ Example: weights class stock"""
 """
         return help_text
 
+    def _handle_return(self) -> str:
+        """Handle 'return' command - shows total portfolio P&L vs cost basis"""
+        holdings = self.portfolio.list_holdings()
+
+        if not holdings:
+            return "- Portfolio is empty. Use 'add' to add stocks."
+
+        self._refresh_portfolio_prices()
+
+        total_cost = sum(s.transaction_value() for s in holdings)
+        total_value = sum(s.total_value() for s in holdings)
+        total_pnl = total_value - total_cost
+        total_ret_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0.0
+        pnl_str = ("+" if total_pnl >= 0 else "-") + f"${abs(total_pnl):>10.2f}"
+        ret_str = ("+" if total_ret_pct >= 0 else "") + f"{total_ret_pct:>9.2f}%"
+
+        result  = "\n--- PORTFOLIO RETURN ---\n"
+        result += f"{'Transaction Value':>14} | {'Current Value':>12} | {'P&L ($)':>13} | {'Return (%)':>11}\n"
+        result += "-" * 58 + "\n"
+        result += f"${total_cost:>13,.2f} | ${total_value:>11,.2f} | {pnl_str} | {ret_str}\n"
+        return result
+
     def _handle_graph(self, args: list) -> str:
         """Handle 'graph TICKER1 TICKER2 ...' command - displays 1-year price charts from Yahoo Finance"""
         if len(args) < 1:
             return "- Usage: graph TICKER [TICKER2 TICKER3 ...]\nExample: graph AAPL\nExample: graph AAPL MSFT GOOGL"
 
         try:
-            import matplotlib.pyplot as plt
-
             tickers = [t.upper() for t in args]
             not_found = []
-
-            plt.figure(figsize=(12, 7))
+            hist_dict = {}
 
             for ticker in tickers:
-                hist = yf.Ticker(ticker).history(period="1y") # Show historical price for 1 year
+                hist = yf.Ticker(ticker).history(period="1y")
                 if hist.empty or hist['Close'].dropna().empty:
                     not_found.append(ticker)
                     continue
-                plt.plot(hist.index, hist['Close'], linewidth=2, label=ticker)
+                hist_dict[ticker] = hist
 
             if not_found:
-                plt.close()
                 return f"- Error: No data found on Yahoo Finance for: {', '.join(not_found)}"
 
-            plotted = [t for t in tickers if t not in not_found]
+            self.view.display_price_graph(hist_dict)
+            return f"- Graph displayed for: {', '.join(hist_dict.keys())}"
 
-            plt.title("Price History — 1 Year (Yahoo Finance)")
-            plt.xlabel("Date")
-            plt.ylabel("Price ($)")
-            plt.legend(loc='best')
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.show()
-
-            return f"- Graph displayed for: {', '.join(plotted)}"
-
-        except ImportError:
-            return "- Error: matplotlib required. Run: pip install -r requirements.txt"
         except Exception as e:
             return f"- Error generating graph: {str(e)}"

@@ -7,8 +7,8 @@ from view import PortfolioView
 def main():
     """Main CLI loop"""
     view = PortfolioView()
-    controller = PortfolioController()
-    
+    controller = PortfolioController(view)
+
     view.show_welcome() # Shows first output of the app, suggests typing help for more information
     
     while True:
