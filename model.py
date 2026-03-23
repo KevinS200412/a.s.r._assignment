@@ -3,7 +3,7 @@
 import numpy as np
 import yfinance as yf
 from arch import arch_model
-from hmmlearn.hmm import GaussianHMM
+from hmmlearn.hmm import GaussianHMM # Machine learning package for Hidden Markov Models
 
 class Stock:
     """Represents single stock holding"""
@@ -13,7 +13,7 @@ class Stock:
         self.asset_class = asset_class
         self.quantity = quantity
         self.price = price
-        self.total_cost_invested = quantity * price  # Track total cost of all purchases
+        self.total_cost_invested = quantity * price  # Track total cost of all purchases (transaction value)
         self.price_history = [price]
 
     def add_price(self, new_price: float, additional_quantity: int = 0) -> None:
@@ -45,7 +45,7 @@ class Portfolio:
         self.holdings = {}  # Dict with the ticker as key, Stock as value
     
     def add_stock(self, ticker: str, sector: str, asset_class: str, quantity: int, price: float) -> float:
-        """Add a stock to portfolio or update if exists. Returns total purchase cost."""
+        """Add a stock to portfolio or update if exists. Returns total purchase cost of the current buy."""
         ticker = ticker.upper() # Normalize ticker input to uppercase
         if ticker in self.holdings:
             self.holdings[ticker].quantity += quantity
@@ -84,7 +84,7 @@ class Portfolio:
         for stock in self.holdings.values():
             if stock.sector not in by_sector:
                 by_sector[stock.sector] = []
-            by_sector[stock.sector].append(stock)
+            by_sector[stock.sector].append(stock) # Add stock, if belonging to this sector
         return by_sector
     
     def get_holdings_by_asset_class(self) -> dict:
@@ -93,7 +93,7 @@ class Portfolio:
         for stock in self.holdings.values():
             if stock.asset_class not in by_class:
                 by_class[stock.asset_class] = []
-            by_class[stock.asset_class].append(stock)
+            by_class[stock.asset_class].append(stock) # Add stock, if belonging to this asset class
         return by_class
 
     def get_sector_value(self, sector_name: str) -> float:
@@ -107,12 +107,15 @@ class Portfolio:
     def simulate_monte_carlo(self) -> dict:
         """Run Monte Carlo GBM simulation (15 years, 100,000 paths). Returns results dict."""
         CLASS_PARAMS = {
+            # (mean return, volatility), based on historical averages and standard values
             "stock":     (0.10, 0.18),
             "bond":      (0.04, 0.06),
             "etf":       (0.09, 0.15),
             "commodity": (0.05, 0.20),
         }
+        # If assets have class, which is not equal to above, we will use these default parameters
         DEFAULT_PARAMS = (0.08, 0.15)
+
         N_PATHS = 100_000
         N_YEARS = 15
         dt      = 1.0
@@ -120,6 +123,7 @@ class Portfolio:
         holdings            = self.list_holdings()
         total_initial_value = self.total_portfolio_value()
 
+        # Create df for simulation, every row is a path, every column is a year
         portfolio_paths       = np.zeros((N_PATHS, N_YEARS + 1))
         portfolio_paths[:, 0] = total_initial_value
         increments            = np.zeros((N_PATHS, N_YEARS))
@@ -128,7 +132,10 @@ class Portfolio:
             mu, sigma   = CLASS_PARAMS.get(stock.asset_class.lower(), DEFAULT_PARAMS)
             initial     = stock.total_value()
             Z           = np.random.standard_normal((N_PATHS, N_YEARS))
+
+            # Geometric Brownian Motion (GBM) log-return: drift-corrected mean (Itô's lemma) + stochastic shock
             log_returns = (mu - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * Z
+
             asset_paths = initial * np.exp(np.cumsum(log_returns, axis=1))
             increments += asset_paths
 
@@ -143,6 +150,7 @@ class Portfolio:
             for year in range(N_YEARS + 1)
         }
         summary = {
+            # Percentiles of final portfolio values after 15 years
             "p1":  float(np.percentile(final_values, 1)),
             "p5":  float(np.percentile(final_values, 5)),
             "p50": float(np.median(final_values)),
@@ -208,17 +216,22 @@ class Portfolio:
             result.append((stock.ticker, value, weight))
         return result
 
+    # From here on static methods, because they only need a ticker as input and don't use any portfolio data
+
     @staticmethod
     def fit_garch(ticker: str, period: str) -> dict:
         """Fetch price data and fit GARCH(1,1). Returns result dict or raises on insufficient data."""
 
         hist = yf.Ticker(ticker).history(period=period)
-        if hist.empty or len(hist) < 30:
+        if hist.empty or len(hist) < 30: # We need enough data to fit GARCH
             raise ValueError(f"Not enough data for '{ticker}' to fit GARCH (need at least 30 observations).")
 
         closes  = hist['Close'].dropna()
         returns = 100 * np.log(closes / closes.shift(1)).dropna()
+
+        # Fit GARCH(1,1) model to returns
         model   = arch_model(returns, vol='Garch', p=1, q=1, dist='normal', rescale=False)
+
         res     = model.fit(disp='off')
 
         forecast            = res.forecast(horizon=1, reindex=False)

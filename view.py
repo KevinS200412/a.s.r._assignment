@@ -82,6 +82,7 @@ class PortfolioView:
         result += f"{'Ticker':6} | {'Sector':10} | {'Asset Class':12} | {'Qty':5} | {'Avg Price':11} | {'Transaction Value':17} | {'Current Value':14}\n"
         result += "-" * 110 + "\n"
         for stock in holdings:
+            # 6, 8, 12 etc. indicate column widths for consistent alignment
             result += f"{stock.ticker:6} | {stock.sector:10} | {stock.asset_class:12} | {stock.quantity:5} | ${stock.get_average_purchase_price():10.2f} | ${stock.transaction_value():16.2f} | ${stock.total_value():13.2f}\n"
         print(result)
 
@@ -186,7 +187,7 @@ class PortfolioView:
         out += f"{'Regime':<14} | {'Days':>6} | {'% Time':>7} | {'Avg Daily Return':>17} | {'Avg Daily Vol':>14}\n"
         out += "-" * 68 + "\n"
         for s in order:
-            mask    = hidden_states == s
+            mask    = hidden_states == s # Amount of states, chosen by user
             days    = mask.sum()
             pct     = 100 * days / len(hidden_states)
             avg_ret = returns[mask].mean()
@@ -196,8 +197,8 @@ class PortfolioView:
 
     def display_simulation_results(self, data: dict) -> None:
         """Display Monte Carlo simulation text results table"""
-        N_PATHS   = data["N_PATHS"]
-        N_YEARS   = data["N_YEARS"]
+        N_PATHS   = data["N_PATHS"] # Amount of paths for simulating
+        N_YEARS   = data["N_YEARS"] # Amount of years for simulating
         year_rows = data["year_rows"]
         summary   = data["summary"]
         result  = f"\n--- MONTE CARLO SIMULATION (15 Years, 100,000 Paths) ---\n"
@@ -242,7 +243,7 @@ class PortfolioView:
         plt.show()
 
     def display_volatility_graph(self, ticker: str, period: str, dates, cond_vol, predicted_vol_daily: float) -> None:
-        """Display GARCH(1,1) conditional volatility graph"""
+        """Display GARCH(1,1) conditional volatility graph, for a given period"""
         plt.figure(figsize=(12, 5))
         plt.plot(dates, cond_vol, color='steelblue', linewidth=1, label='Conditional volatility (daily %)')
         plt.axhline(predicted_vol_daily, color='red', linestyle='--', linewidth=1.5,
@@ -261,9 +262,12 @@ class PortfolioView:
         sample_idx = np.random.choice(n_paths, size=200, replace=False)
         for i in sample_idx:
             plt.plot(years, portfolio_paths[i] / 1e3, color='steelblue', alpha=0.03, linewidth=0.5)
+
+        # The colored bands for the percentiles are plotted on top of the individual paths for better visibility    
         plt.fill_between(years, pct_values[0] / 1e3, pct_values[6] / 1e3, alpha=0.08, color='red', label='1st–99th pct')
         plt.fill_between(years, pct_values[1] / 1e3, pct_values[5] / 1e3, alpha=0.15, color='orange', label='5th–95th pct')
         plt.fill_between(years, pct_values[2] / 1e3, pct_values[4] / 1e3, alpha=0.25, color='orange', label='25th–75th pct')
+        
         plt.plot(years, pct_values[3] / 1e3, color='darkorange', linewidth=2.5, label='Median')
         plt.axhline(y=total_initial_value / 1e3, color='red', linestyle='--', linewidth=1.5, label='Initial Value')
         plt.title(f"Portfolio Monte Carlo Simulation — {n_years} Years, {n_paths:,} Paths", fontsize=14)

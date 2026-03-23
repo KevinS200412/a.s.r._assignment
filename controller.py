@@ -26,6 +26,8 @@ class PortfolioController:
     def execute_command(self, command: str, args: list) -> str:
         """Execute a command and return status message"""
         
+        # These commands are given by user, they are executed by different internal methods
+
         if command == "add":
             return self._handle_add(args)
         
@@ -81,7 +83,7 @@ class PortfolioController:
     def _handle_add(self, args: list) -> str:
         """Handle 'add TICKER SECTOR ASSET_CLASS QUANTITY [PURCHASE_PRICE]' command.
         PURCHASE_PRICE is optional. If omitted, the live Yahoo Finance price is used as the purchase price.
-        Current value always reflects the live price from Yahoo Finance.
+        Current value reflects the live price from Yahoo Finance.
         """
         if len(args) < 4:
             return "- Usage: add TICKER SECTOR ASSET_CLASS QUANTITY [PURCHASE_PRICE]\nExample: add AAPL tech stock 10\nExample: add AAPL tech stock 10 154.00"
@@ -158,7 +160,7 @@ class PortfolioController:
         if not holdings:
             return "- Portfolio is empty. Use 'add' to add stocks."
 
-        self.portfolio.refresh_prices()
+        self.portfolio.refresh_prices() # Fetch latest prices from Yahoo Finance
         total_value = self.portfolio.total_portfolio_value()
 
         if len(args) == 0:
@@ -206,9 +208,7 @@ Example: weights sector tech
 Example: weights class stock"""
     
     def _handle_history(self, args: list) -> str:
-        """Handle 'history TICKER [PERIOD]' command - fetches close price history from Yahoo Finance.
-        PERIOD examples: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y (default: 1mo)
-        """
+        """Handle 'history TICKER [PERIOD]' command - fetches close price history from Yahoo Finance."""
         if len(args) < 1:
             return "- Usage: history TICKER [PERIOD]\nExample: history AAPL\nExample: history AAPL 6mo"
 
@@ -230,9 +230,7 @@ Example: weights class stock"""
             return f"- Error fetching history for {ticker}: {str(e)}"
 
     def _handle_volume(self, args: list) -> str:
-        """Handle 'volume TICKER [PERIOD]' command - shows avg and last volume from Yahoo Finance.
-        PERIOD examples: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y (default: 1mo)
-        """
+        """Handle 'volume TICKER [PERIOD]' command - shows avg and last volume from Yahoo Finance."""
         if len(args) < 1:
             return "- Usage: volume TICKER [PERIOD]\nExample: volume AAPL\nExample: volume AAPL 6mo"
 
@@ -252,7 +250,7 @@ Example: weights class stock"""
             return f"- Error fetching volume for {ticker}: {str(e)}"
 
     def _handle_volatility(self, args: list) -> str:
-        """Handle 'predict volatility TICKER [PERIOD]' - terminal-only GARCH(1,1) forecast."""
+        """Handle 'predict volatility TICKER [PERIOD]' - GARCH(1,1) forecast."""
         if len(args) < 1:
             return "- Usage: predict volatility TICKER [PERIOD]\nExample: predict volatility AAPL\nExample: predict volatility AAPL 5y"
 
