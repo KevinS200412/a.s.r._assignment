@@ -78,6 +78,9 @@ class PortfolioController:
                 return self._handle_historical_volatility(args[1:])
             return "- Usage: historical volatility TICKER [PERIOD]"
 
+        elif command == "regime":
+            return self._handle_regime(args)
+
         elif command == "graph":
             return self._handle_graph(args)
         
@@ -456,6 +459,103 @@ Example: weights class stock"""
         except Exception as e:
             return f"- Error running GARCH model for {ticker}: {str(e)}"
 
+    def _handle_regime(self, args: list) -> str:
+        """Handle 'regime TICKER [PERIOD] [--states N]' - HMM regime detection on GARCH volatility.
+        Fits a Gaussian HMM on daily returns + GARCH vol, labels each day as a market regime,
+        and plots the price series coloured by regime. Also reports current regime.
+        """
+        if len(args) < 1:
+            return "- Usage: regime TICKER [PERIOD] [--states N]\nExample: regime AAPL\nExample: regime AAPL 5y\nExample: regime AAPL 5y --states 3"
+
+        ticker = args[0].upper()
+
+        # Parse optional --states flag and period
+        remaining = args[1:]
+        n_states = 3  # default: low / medium / high vol
+        if "--states" in remaining:
+            idx = remaining.index("--states")
+            try:
+                n_states = int(remaining[idx + 1])
+                remaining = [a for i, a in enumerate(remaining) if i != idx and i != idx + 1]
+            except (IndexError, ValueError):
+                return "- Error: --states must be followed by an integer, e.g. --states 3"
+        period = remaining[0] if remaining else "2y"
+
+        valid_periods = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+        if period not in valid_periods:
+            return f"- Error: Invalid period '{period}'. Valid options: {', '.join(sorted(valid_periods))}"
+        if not (2 <= n_states <= 6):
+            return "- Error: --states must be between 2 and 6."
+
+        try:
+            from hmmlearn.hmm import GaussianHMM
+        except ImportError:
+            return "- Error: 'hmmlearn' package required. Run: pip install hmmlearn"
+
+        try:
+            import numpy as np
+            from arch import arch_model
+
+            hist = yf.Ticker(ticker).history(period=period)
+            if hist.empty or len(hist) < 60:
+                return f"- Error: Not enough data for '{ticker}' to detect regimes (need at least 60 observations)."
+
+            closes = hist['Close'].dropna()
+            returns = 100 * np.log(closes / closes.shift(1)).dropna()
+            aligned_closes = closes.loc[returns.index]
+
+            # Fit GARCH(1,1) to get conditional volatility series
+            garch = arch_model(returns, vol='Garch', p=1, q=1, dist='normal', rescale=False)
+            garch_res = garch.fit(disp='off')
+            cond_vol = garch_res.conditional_volatility.values
+
+            # Feature matrix: [return, GARCH vol]
+            X = np.column_stack([returns.values, cond_vol])
+
+            # Fit Gaussian HMM
+            model = GaussianHMM(n_components=n_states, covariance_type='full',
+                                n_iter=200, random_state=42)
+            model.fit(X)
+            hidden_states = model.predict(X)
+
+            # Label regimes by mean GARCH vol (ascending = low -> high vol)
+            state_vols = [cond_vol[hidden_states == s].mean() for s in range(n_states)]
+            order = np.argsort(state_vols)   # index of states sorted low->high vol
+            rank = np.empty_like(order)      # rank[state] = 0(low)..N-1(high)
+            for r, s in enumerate(order):
+                rank[s] = r
+
+            regime_labels = [None] * n_states
+            if n_states == 2:
+                names = ["Low Vol", "High Vol"]
+            elif n_states == 3:
+                names = ["Low Vol", "Medium Vol", "High Vol"]
+            else:
+                names = [f"Regime {i+1}" for i in range(n_states)]
+            for s in range(n_states):
+                regime_labels[s] = names[rank[s]]
+
+            # Terminal summary: current regime + stats per regime
+            current_state = hidden_states[-1]
+            current_regime = regime_labels[current_state]
+            last_date = aligned_closes.index[-1].strftime('%Y-%m-%d')
+
+            out  = f"\n--- REGIME DETECTION FOR {ticker} ({period}, {n_states} states) ---\n"
+            out += f"Current regime ({last_date}): {current_regime}\n\n"
+            out += f"{'Regime':<14} | {'Days':>6} | {'% Time':>7} | {'Avg Daily Return':>17} | {'Avg Daily Vol':>14}\n"
+            out += "-" * 68 + "\n"
+            for s in order:  # iterate in volatility ascending order (Low -> High)
+                mask = hidden_states == s
+                days = mask.sum()
+                pct = 100 * days / len(hidden_states)
+                avg_ret = returns.values[mask].mean()
+                avg_v = cond_vol[mask].mean()
+                out += f"{regime_labels[s]:<14} | {days:>6} | {pct:>6.1f}% | {avg_ret:>16.4f}% | {avg_v:>13.4f}%\n"
+            return out
+
+        except Exception as e:
+            return f"- Error running regime detection for {ticker}: {str(e)}"
+
     def _handle_simulate(self) -> str:
         """Handle 'simulate' command, Monte Carlo simulation over 15 years with 100,000 paths"""
         holdings = self.portfolio.list_holdings()
@@ -596,6 +696,10 @@ Example: weights class stock"""
   historical volatility TICKER [PERIOD]        - GARCH(1,1) conditional volatility graph over time
                                                   PERIOD: 1mo 3mo 6mo 1y 2y 5y 10y ytd max (default: 2y)
                                                   Example: historical volatility AAPL
+  regime TICKER [PERIOD] [--states N]          - HMM regime detection (low/medium/high vol states)
+                                                  PERIOD default: 2y | --states default: 3 (2-6)
+                                                  Example: regime AAPL
+                                                  Example: regime AAPL 5y --states 4
   simulate                                     - Run Monte Carlo simulation (15yr, 100k paths)
   remove TICKER                                - Remove asset from portfolio
   help                                         - Show this help message
